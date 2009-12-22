@@ -3,8 +3,11 @@ module namespace twitter = "http://namespace.dscape.org/2009/twitter";
 declare default function namespace "http://www.w3.org/2005/xpath-functions";
 
 (: Finding any status containing the query :)
-declare function twitter:find-status($query as xs:string) as element(SPEECH)* {
-     cts:search(//SPEECH, cts:element-value-query(xs:QName("SPEAKER"),$query, ("wildcarded", "case-insensitive")))	
+declare function twitter:find-by-screen-name($screen_name as xs:string) {
+     cts:search(//*:screen_name, 
+       cts:element-value-query(xs:QName("screen_name"),
+         concat($screen_name, "*"),
+         ("wildcarded", "case-insensitive") ) )
 };
 
 (: Get the friends timeline in xml format :)
@@ -40,15 +43,44 @@ declare function twitter:store-timeline(
   $username as xs:string,
   $password as xs:string ) {
   for $status in 
+  (: doc()
+  return
+    xdmp:document-delete(document-uri($status)) :)
     twitter:get-friends-timeline($username,$password)/*:statuses/*:status
-    return 
-      xdmp:document-insert(
-       concat("friend_status_for_", $username, "_id_", $status/*:id, ".xml"), $status ) 
+  let $uri := concat("./", $status/*:id/text(), ".xml")
+  let $insert := xdmp:document-insert($uri, $status)
+  let $collection := xdmp:document-add-collections($uri, $username) 
+  return
+    (: To avoid data not being loaded before displayed :)
+    xdmp:sleep(100)
 };
 
 (: Get the timeline for a specific user :)
 declare function twitter:get-timeline-for(
 	$username as xs:string ) {
 	(: implement later on with some kind of wildcard :)
-	doc()
+	collection($username)
+};
+
+(: Send a tweet :)
+declare function twitter:tweet(
+  $username as xs:string,
+  $password as xs:string,
+  $message as xs:string  
+) {
+  try {
+    xdmp:http-post( 
+    "http://twitter.com/statuses/update.xml?status={xdmp:url-encode($message)}",
+      <options xmlns="xdmp:http">
+        <authentication method="basic">
+          <username>{$username}</username>
+          <password>{$password}</password>
+         </authentication>
+      </options>)
+  } catch ($e) {
+    document { 
+    <error>
+		  Connection Problem
+	  </error> }
+  }
 };
