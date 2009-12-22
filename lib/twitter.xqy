@@ -35,7 +35,7 @@ declare function twitter:auth-successful(
 	$password as xs:string ) as xs:boolean {
 	let $timeline := twitter:get-friends-timeline($username,$password)
 	let $http_response_code := $timeline//*:code
-	return not($http_response_code eq xs:integer('401'))
+	return $http_response_code eq xs:integer('200')
 };
 
 (: Loads new statuses into the database :)
@@ -47,19 +47,56 @@ declare function twitter:store-timeline(
   return
     xdmp:document-delete(document-uri($status)) :)
     twitter:get-friends-timeline($username,$password)/*:statuses/*:status
-  let $uri := concat("./", $status/*:id/text(), ".xml")
+  let $uri := twitter:uri_for($status/*:id/text())
   let $insert := xdmp:document-insert($uri, $status)
   let $collection := xdmp:document-add-collections($uri, $username) 
   return
-    (: To avoid data not being loaded before displayed :)
-    xdmp:sleep(100)
+    () 
 };
 
 (: Get the timeline for a specific user :)
 declare function twitter:get-timeline-for(
-	$username as xs:string ) {
-	(: implement later on with some kind of wildcard :)
-	collection($username)
+	$username as xs:string) {
+	  collection($username)
+};
+
+(: Get the filtered timeline for a specific user :)
+declare function twitter:get-filtered-timeline-for(
+	$username as xs:string,
+	$filter as xs:string ) {
+     cts:search(collection($username)[//*:screen_name], 
+       cts:element-value-query(xs:QName("screen_name"),
+         $filter,
+         ("wildcarded", "case-insensitive") ) )
+};
+
+(: Delete a tweet :)
+declare function twitter:delete_status(
+  $username as xs:string,
+  $password as xs:string,
+  $status_id as xs:string  
+) {
+  try {
+    let $options := 
+      <options xmlns="xdmp:http">
+        <authentication method="basic">
+          <username>{$username}</username>
+          <password>{$password}</password>
+         </authentication>
+      </options>
+    let $delete := xdmp:document-delete(twitter:uri_for($status_id))
+    let $post   := xdmp:http-delete( 
+      concat("http://twitter.com/statuses/destroy/",$status_id,".xml"), $options)
+    let $reload_statuses :=  twitter:store-timeline($username,$password)
+    let $response_code := $post//*:code
+    return if($response_code eq xs:integer('200'))
+      then 
+        xdmp:redirect-response(concat("/?username=",$username,"&amp;password=",$password,"&amp;notice=",xdmp:url-encode('Status deleted')))
+      else
+        xdmp:redirect-response(concat("/?username=",$username,"&amp;password=",$password,"&amp;error=",xdmp:url-encode('Delete Failed')))
+  } catch ($e) {
+    xdmp:redirect-response(concat("/?username=",$username,"&amp;password=",$password,"&amp;error=",xdmp:url-encode(xdmp:quote($e))))
+  }
 };
 
 (: Send a tweet :)
@@ -69,18 +106,47 @@ declare function twitter:tweet(
   $message as xs:string  
 ) {
   try {
-    xdmp:http-post( 
-    "http://twitter.com/statuses/update.xml?status={xdmp:url-encode($message)}",
+    let $options := 
       <options xmlns="xdmp:http">
         <authentication method="basic">
           <username>{$username}</username>
           <password>{$password}</password>
          </authentication>
-      </options>)
+      </options>
+    let $post   := xdmp:http-post( 
+      concat("http://twitter.com/statuses/update.xml?status=",xdmp:url-encode($message)), $options)
+    let $response_code := $post//*:code
+    let $uri := twitter:uri_for($post/*:id/text())
+    let $insert := xdmp:document-insert($uri, $post)
+    let $reload_statuses :=  twitter:store-timeline($username,$password)
+    return if($response_code eq xs:integer('200'))
+      then 
+        xdmp:redirect-response(concat("/?username=",$username,"&amp;password=",$password,"&amp;notice=",xdmp:url-encode('Tweet posted')))
+      else
+        xdmp:redirect-response(concat("/?username=",$username,"&amp;password=",$password,"&amp;error=",xdmp:url-encode('Tweet failed')))
   } catch ($e) {
-    document { 
-    <error>
-		  Connection Problem
-	  </error> }
+    xdmp:redirect-response(concat("/?username=",$username,"&amp;password=",$password,"&amp;error=",xdmp:url-encode(xdmp:quote($e))))
   }
+};
+
+(: Hide a tweet :)
+declare function twitter:hide_status(
+  $username as xs:string,
+  $password as xs:string,
+  $status_id as xs:string  
+) {
+  try {
+    let $hide := xdmp:node-replace(doc(twitter:uri_for($status_id))/*:status/*:text, <text>******</text>)
+    return 
+      xdmp:redirect-response(concat("/?username=",$username,"&amp;password=",$password,"&amp;notice=",xdmp:url-encode("Status is now hidden")))
+  } catch ($e) {
+      xdmp:redirect-response(concat("/?username=",$username,"&amp;password=",$password,"&amp;error=",xdmp:url-encode(xdmp:quote($e))))
+  }
+};
+
+(: The URI for a status :)
+declare function twitter:uri_for(
+  $status_id as xs:string
+) {
+  concat("./", $status_id, ".xml")
 };

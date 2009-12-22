@@ -15,20 +15,34 @@ xdmp:set-response-content-type('text/html'),
 	  <div id="container"> { 
 	  let $username          := xdmp:get-request-field("username")
 	  let $password          := xdmp:get-request-field("password")
-	  let $filter            := xdmp:get-request-field("filter")
+	  let $filter            := xdmp:get-request-field("screen_name")
+	  let $notice            := xdmp:get-request-field("notice")
+	  let $error             := xdmp:get-request-field("error")
 	  let $friends_timeline  := twitter:store-timeline($username,$password)
+	  let $sleep             := xdmp:sleep(1000)
     let $auth_successful   := twitter:auth-successful($username,$password)
-	  return
+	  return 
 	    if ($auth_successful)
-	    then
+	    then 
 	    <div id="statuses_container">
 	      <h1>Welcome to Twitter - { $username } </h1>
+	      <div id="flash"> {
+	        for $flash in ($error,$notice)
+	        return <div class="flash">{$flash}</div> }
+	      </div>
 	      <div id="filter">
-	        <form>
+	        <form method="post" action="default.xqy">
       		  <div id="filter_status">
     	  	    <label>Filter by user</label>
 	    	      <input type="text" name="screen_name" id="screen_name" />
+	    	      <input type="text" name="username" id="username" value="{$username}" class="invisible"/>
+	    	      <input type="text" name="password" id="password" value="{$password}" class="invisible"/>
 	      	  </div>
+	      	  <div id="filter_submit">
+  		        <label class="invisible">Filter</label>
+	  	        <input type="submit" name="filter_status" id="filter_status" 
+	  	               value="Filter"/>
+	    	    </div>
 	      	</form>
 	        <div id="auto_complete_opts" class="autocomplete"></div>
 	    	  <script type="text/javascript">
@@ -40,7 +54,9 @@ xdmp:set-response-content-type('text/html'),
 	        <form method="post" action="post.xqy">
     		    <div id="whats_happening_status">
     		      <label>What's Happening?</label>
-	    	      <input type="text" name="new_status" id="new_status" />
+	    	      <input type="text" name="status" id="status" />
+	    	      <input type="text" name="username" id="username" value="{$username}" class="invisible"/>
+	    	      <input type="text" name="password" id="password" value="{$password}" class="invisible"/>
 	      	  </div>
 	    	    <div id="whats_happening_submit">
   		        <label class="invisible">Update</label>
@@ -50,6 +66,16 @@ xdmp:set-response-content-type('text/html'),
           </form> 
 	      </div>
 	      <div id="statuses"> {
+	      if($filter)
+	      then
+	      for $status in twitter:get-filtered-timeline-for($username,$filter)/*:status
+	      order by xs:integer($status/*:id) descending
+	      return
+	        <div id="status_{$status/*:id}" class="status">
+	          <strong> {$status/*:user/*:screen_name/text()} </strong>: 
+	          {$status/*:text//text()}
+	        </div> 
+	      else 
 	      for $status in twitter:get-timeline-for($username)/*:status
 	      order by xs:integer($status/*:id) descending
 	      return
@@ -58,18 +84,20 @@ xdmp:set-response-content-type('text/html'),
 	          {$status/*:text//text()}
 	          { if($status/*:user/*:screen_name eq $username)
 	            then
-	          <div id="status_actions"> [ <a href="#">delete</a> ] </div>
+	          <div id="status_actions"> 
+	            [ <a href="delete.xqy?username={$username}&amp;password={$password}&amp;id={$status/*:id}">delete</a> ] [ <a href="hide.xqy?username={$username}&amp;password={$password}&amp;id={$status/*:id}">hide</a> ]
+	          </div>
 	            else
 	              ''
 	          }
-	        </div>
+	        </div> 
 	      }
 	      </div>
-	    </div>
+	    </div> 
 	    else
 	    <div id="login_form">
 	   	  <h1>Welcome to Twitter. Please sign in!</h1> {  
-	   	      if($username and not($auth_successful))
+	   	      if(($username or $password) and not($auth_successful))
 	   	      then
 	   	  <div id="flash_error">
 	   	    Authentication Failed. Please try again.
@@ -90,7 +118,7 @@ xdmp:set-response-content-type('text/html'),
 	  	      <input type="submit" name="login" id="login" value="Login to Twitter"/>
 	    	  </div>
         </form> 
-      </div> }
+      </div> } 
 		</div>
 	</body>
 </html>)
